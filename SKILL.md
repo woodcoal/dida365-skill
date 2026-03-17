@@ -23,10 +23,9 @@ metadata:
 6. 复制其中的 `Client ID` 和 `Client Secret`
 7. 将 `OAuth redirect URL` 设置为 `http://localhost:18365/callback`
 
-然后把授权信息写入 skill 目录下的 `.env`：
+然后把授权信息写入当前 skill 目录下的 `.env`：
 
 ```bash
-cd ~/.claude/skills/dida365-skill
 cp .env.example .env
 ```
 
@@ -47,7 +46,7 @@ DIDA_CLIENT_SECRET=你的_client_secret
 2. 运行授权命令：
 
 ```bash
-cd ~/.claude/skills/dida365-skill && python3 index.py auth
+python3 index.py auth
 ```
 
 3. 在浏览器中打开输出的授权链接，完成授权后 token 自动保存
@@ -57,7 +56,7 @@ cd ~/.claude/skills/dida365-skill && python3 index.py auth
 若当前是远程服务器环境，可在本机浏览器完成授权后，从重定向地址中复制 `code`，再执行：
 
 ```bash
-cd ~/.claude/skills/dida365-skill && python3 index.py auth --code <authorization_code>
+python3 index.py auth --code <authorization_code>
 ```
 
 ## Intent Decision Tree
@@ -91,10 +90,10 @@ cd ~/.claude/skills/dida365-skill && python3 index.py auth --code <authorization
 
 ## 核心工作流
 
-所有命令的 cwd 必须是 skill 目录：
+所有命令都应在当前 skill 目录下执行：
 
 ```bash
-cd ~/.claude/skills/dida365-skill && python3 index.py <command> [args]
+python3 index.py <command> [args]
 ```
 
 除非是在开发这个 skill 本身，否则不要写临时 Python 片段访问 API；优先把用户意图映射到现有 CLI 子命令。

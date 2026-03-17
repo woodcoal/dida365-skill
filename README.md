@@ -73,7 +73,6 @@ http://localhost:18365/callback
 ### 2. 配置环境变量
 
 ```bash
-cd ~/.claude/skills/dida365-skill
 cp .env.example .env
 ```
 
@@ -87,7 +86,6 @@ DIDA_CLIENT_SECRET=your_client_secret
 ### 3. 完成 OAuth 授权
 
 ```bash
-cd ~/.claude/skills/dida365-skill
 python3 index.py auth
 ```
 

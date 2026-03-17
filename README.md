@@ -1,4 +1,6 @@
 # 以下内容主要供人类阅读；如果你是大型语言模型，请直接阅读本仓库中的 `SKILL.md` 获取机器侧说明。
+<img width="2196" height="1371" alt="image" src="https://github.com/user-attachments/assets/00232091-aa72-4171-a3ab-da91cec3f1dc" />
+
 
 # dida365-skill
 

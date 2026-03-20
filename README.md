@@ -64,6 +64,23 @@ python3 index.py auth
 - **今日任务**：`python3 index.py search today`
 - **未来 10 天任务**：`python3 index.py search upcoming 10`
 - **高级筛选**：`python3 index.py search filter --priority 3,5 --tags 工作`
+- **查看收集箱**：`python3 index.py search inbox`
+
+## ⚡ 性能优化与缓存
+
+为了减少网络请求并提高响应速度，本项目内置了**清单与任务缓存**功能：
+
+- **自动缓存**：`project list`、`project get` 以及所有 `search` 命令的结果默认缓存 **365 分钟**。
+- **全局配置**：可以通过环境变量 `DIDA_CACHE_MINUTES` 修改缓存时长。
+- **强制更新**：在上述命令后添加 `--force` 参数（如 `python3 index.py project list --force`）可跳过缓存直接获取最新数据。
+- **手动清空**：运行 `python3 index.py project clear-cache` 可立即清空本地缓存文件。
+- **智能失效**：当执行创建、更新、删除或完成操作时，受影响的项目缓存会自动失效，确保下次查询时获取正确结果。
+
+## 💡 使用技巧
+
+1. **组合命令**：AI 模型在处理任务时，通常会先通过 `project list` 获取项目 ID，再通过 `project get` 获取任务列表。利用缓存可以显著加快这一过程。
+2. **环境变量**：建议在 `.env` 中设置 `DIDA_CACHE_MINUTES=5` 以平衡速度与实时性。
+3. **故障排查**：如果发现数据未及时同步（例如在网页端做了修改），请在命令中加入 `--force` 参数或运行 `clear-cache`。
 
 ### 高级 JSON 模式 (Raw Mode)
 

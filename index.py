@@ -23,6 +23,62 @@ except ImportError:  # pragma: no cover - Python 3.8 fallback
 API_BASE = "https://api.dida365.com/open/v1"
 PRIORITY_LABELS = {0: "  ", 1: "低", 3: "中", 5: "高"}
 
+# 缓存配置
+CACHE_FILE = os.path.join(os.path.dirname(__file__), ".dida-cache.json")
+CACHE_EXPIRATION_MINUTES = int(os.environ.get("DIDA_CACHE_MINUTES", "365"))
+
+
+def load_cache() -> dict[str, Any]:
+    """从本地文件加载缓存数据。"""
+    if not os.path.exists(CACHE_FILE):
+        return {}
+    try:
+        with open(CACHE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def save_cache(cache_data: dict[str, Any]) -> None:
+    """将缓存数据保存到本地文件。"""
+    try:
+        with open(CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(cache_data, f, ensure_ascii=False, indent=2)
+    except OSError:
+        pass
+
+
+def get_cached_data(key: str, sub_key: str | None = None) -> Any | None:
+    """获取缓存数据，如果已过期则返回 None。"""
+    cache = load_cache()
+    data_entry = cache.get(key)
+    if sub_key and data_entry:
+        data_entry = data_entry.get(sub_key)
+
+    if not data_entry:
+        return None
+
+    timestamp = data_entry.get("timestamp", 0)
+    if datetime.now().timestamp() - timestamp > CACHE_EXPIRATION_MINUTES * 60:
+        return None
+
+    return data_entry.get("data")
+
+
+def set_cached_data(key: str, data: Any, sub_key: str | None = None) -> None:
+    """设置缓存数据。"""
+    cache = load_cache()
+    entry = {"timestamp": datetime.now().timestamp(), "data": data}
+    
+    if sub_key:
+        if key not in cache:
+            cache[key] = {}
+        cache[key][sub_key] = entry
+    else:
+        cache[key] = entry
+        
+    save_cache(cache)
+
 
 def request_dida_api(method: str, api_path: str, body: dict[str, Any] | None = None, retry: bool = True) -> Any:
     """发送请求到 Dida365 API。"""
@@ -65,14 +121,28 @@ def request_dida_api(method: str, api_path: str, body: dict[str, Any] | None = N
 
 # --- API 封装函数 ---
 
-def list_projects() -> list[dict[str, Any]]:
+def list_projects(force: bool = False) -> list[dict[str, Any]]:
     """列出所有项目。"""
-    return request_dida_api("GET", "/project")
+    if not force:
+        cached = get_cached_data("projects")
+        if cached is not None:
+            return cached
+            
+    data = request_dida_api("GET", "/project")
+    set_cached_data("projects", data)
+    return data
 
 
-def get_project_data(project_id: str) -> dict[str, Any]:
+def get_project_data(project_id: str, force: bool = False) -> dict[str, Any]:
     """获取项目及其任务数据。"""
-    return request_dida_api("GET", f"/project/{project_id}/data")
+    if not force:
+        cached = get_cached_data("project_data", sub_key=project_id)
+        if cached is not None:
+            return cached
+            
+    data = request_dida_api("GET", f"/project/{project_id}/data")
+    set_cached_data("project_data", data, sub_key=project_id)
+    return data
 
 
 def get_project(project_id: str) -> dict[str, Any]:
@@ -87,44 +157,67 @@ def get_task(project_id: str, task_id: str) -> dict[str, Any]:
 
 def create_project(data: dict[str, Any]) -> dict[str, Any]:
     """创建新项目。"""
-    return request_dida_api("POST", "/project", body=data)
+    result = request_dida_api("POST", "/project", body=data)
+    set_cached_data("projects", None) # 清除项目列表缓存
+    return result
 
 
 def update_project(project_id: str, data: dict[str, Any]) -> dict[str, Any]:
     """更新项目属性。"""
-    return request_dida_api("POST", f"/project/{project_id}", body=data)
+    result = request_dida_api("POST", f"/project/{project_id}", body=data)
+    set_cached_data("projects", None) # 清除项目列表缓存
+    return result
 
 
 def delete_project(project_id: str) -> None:
     """删除指定项目。"""
     request_dida_api("DELETE", f"/project/{project_id}")
+    set_cached_data("projects", None) # 清除项目列表缓存
 
 
 def create_task(task_data: dict[str, Any]) -> dict[str, Any]:
     """创建新任务。"""
-    return request_dida_api("POST", "/task", body=task_data)
+    result = request_dida_api("POST", "/task", body=task_data)
+    project_id = result.get("projectId")
+    if project_id:
+        set_cached_data("project_data", None, sub_key=project_id) # 清除该项目任务缓存
+    return result
 
 
 def update_task(task_id: str, project_id: str, data: dict[str, Any]) -> dict[str, Any]:
     """更新任务属性。"""
     payload = dict(data)
     payload["projectId"] = project_id
-    return request_dida_api("POST", f"/task/{task_id}", body=payload)
+    result = request_dida_api("POST", f"/task/{task_id}", body=payload)
+    set_cached_data("project_data", None, sub_key=project_id) # 清除该项目任务缓存
+    return result
 
 
 def complete_task(project_id: str, task_id: str) -> None:
     """标记任务为完成。"""
     request_dida_api("POST", f"/project/{project_id}/task/{task_id}/complete")
+    set_cached_data("project_data", None, sub_key=project_id) # 清除该项目任务缓存
 
 
 def delete_task(project_id: str, task_id: str) -> None:
     """删除指定任务。"""
     request_dida_api("DELETE", f"/project/{project_id}/task/{task_id}")
+    set_cached_data("project_data", None, sub_key=project_id) # 清除该项目任务缓存
 
 
 def move_tasks(operations: list[dict[str, str]]) -> list[dict[str, Any]]:
     """跨项目移动任务。"""
-    return request_dida_api("POST", "/task/move", body=operations)
+    result = request_dida_api("POST", "/task/move", body=operations)
+    # 清除受影响项目的缓存
+    project_ids = set()
+    for op in operations:
+        if op.get("fromProjectId"):
+            project_ids.add(op["fromProjectId"])
+        if op.get("toProjectId"):
+            project_ids.add(op["toProjectId"])
+    for pid in project_ids:
+        set_cached_data("project_data", None, sub_key=pid)
+    return result
 
 
 def list_completed_tasks(
@@ -159,13 +252,13 @@ def is_task_visible_in_project(project_id: str, task_id: str) -> bool:
 
 # --- 辅助逻辑 ---
 
-def get_today_tasks() -> list[dict[str, Any]]:
+def get_today_tasks(force: bool = False) -> list[dict[str, Any]]:
     """获取今日到期的未完成任务。"""
     today_str = datetime.now().date().isoformat()
     results: list[dict[str, Any]] = []
 
-    for project in list_projects():
-        project_data = get_project_data(project["id"])
+    for project in list_projects(force=force):
+        project_data = get_project_data(project["id"], force=force)
         for task in project_data.get("tasks", []):
             due_day = get_task_date(task, "dueDate")
             if due_day == today_str and task.get("status") == 0:
@@ -181,12 +274,13 @@ def get_due_range_tasks(
     end_date: str,
     include_completed: bool = False,
     project_id: str | None = None,
+    force: bool = False,
 ) -> list[dict[str, Any]]:
     """获取指定日期范围内到期的任务。"""
     results: list[dict[str, Any]] = []
 
     if project_id:
-        project_data = get_project_data(project_id)
+        project_data = get_project_data(project_id, force=force)
         projects = [
             {
                 "id": project_data.get("project", {}).get("id", project_id),
@@ -196,8 +290,8 @@ def get_due_range_tasks(
         ]
     else:
         projects = []
-        for project in list_projects():
-            project_data = get_project_data(project["id"])
+        for project in list_projects(force=force):
+            project_data = get_project_data(project["id"], force=force)
             projects.append(
                 {
                     "id": project["id"],
@@ -227,9 +321,9 @@ def get_due_range_tasks(
     return results
 
 
-def get_inbox_data() -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def get_inbox_data(force: bool = False) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """获取收集箱项目及任务。"""
-    projects = list_projects()
+    projects = list_projects(force=force)
     inbox = next(
         (
             project
@@ -245,7 +339,7 @@ def get_inbox_data() -> tuple[dict[str, Any], list[dict[str, Any]]]:
     if inbox is None:
         raise RuntimeError("未找到收集箱项目")
 
-    project_data = get_project_data(inbox["id"])
+    project_data = get_project_data(inbox["id"], force=force)
     return inbox, project_data.get("tasks", [])
 
 
@@ -465,7 +559,7 @@ def repair_argv() -> None:
         return
 
     commands = {
-        "project": ["list", "info", "get", "create", "update", "delete"],
+        "project": ["list", "info", "get", "create", "update", "delete", "clear-cache"],
         "task": [
             "get", "create-raw", "create-checklist", "create", 
             "update-raw", "update", "complete", "delete", "move"
@@ -547,13 +641,13 @@ def command_auth(args: argparse.Namespace) -> None:
 
 def command_check(args: argparse.Namespace) -> None:
     """连通性检查。"""
-    projects = list_projects()
+    projects = list_projects(force=True)
     print(f"连接正常。共 {len(projects)} 个项目。")
 
 
 def command_project_list(args: argparse.Namespace) -> None:
     """列出项目。"""
-    print(format_project_list(list_projects()))
+    print(format_project_list(list_projects(force=args.force)))
 
 
 def command_project_info(args: argparse.Namespace) -> None:
@@ -563,7 +657,7 @@ def command_project_info(args: argparse.Namespace) -> None:
 
 def command_project_get(args: argparse.Namespace) -> None:
     """项目任务。"""
-    print(format_project_detail(get_project_data(args.id)))
+    print(format_project_detail(get_project_data(args.id, force=args.force)))
 
 
 def command_project_create(args: argparse.Namespace) -> None:
@@ -592,6 +686,15 @@ def command_project_delete(args: argparse.Namespace) -> None:
     """删除项目。"""
     delete_project(args.id)
     print(f"项目已删除: {args.id}")
+
+
+def command_project_clear_cache(args: argparse.Namespace) -> None:
+    """清除缓存。"""
+    if os.path.exists(CACHE_FILE):
+        os.remove(CACHE_FILE)
+        print("缓存已清除。")
+    else:
+        print("无缓存。")
 
 
 def command_task_get(args: argparse.Namespace) -> None:
@@ -712,14 +815,14 @@ def command_task_move(args: argparse.Namespace) -> None:
 
 def command_search_today(args: argparse.Namespace) -> None:
     """今日任务。"""
-    print(format_task_list(get_today_tasks(), "今日待办"))
+    print(format_task_list(get_today_tasks(force=args.force), "今日待办"))
 
 
 def command_search_upcoming(args: argparse.Namespace) -> None:
     """未来任务。"""
     start = datetime.now().date()
     end = start + timedelta(days=args.days - 1)
-    tasks = get_due_range_tasks(start.isoformat(), end.isoformat(), project_id=args.project)
+    tasks = get_due_range_tasks(start.isoformat(), end.isoformat(), project_id=args.project, force=args.force)
     print(format_task_list(tasks, f"未来 {args.days} 天到期任务 ({start.isoformat()} ~ {end.isoformat()})"))
 
 
@@ -729,7 +832,7 @@ def command_search_due_range(args: argparse.Namespace) -> None:
     end = normalize_date_only(args.end)
     if start > end:
         raise RuntimeError("开始日期不能晚于结束日期")
-    tasks = get_due_range_tasks(start, end, project_id=args.project)
+    tasks = get_due_range_tasks(start, end, project_id=args.project, force=args.force)
     print(format_task_list(tasks, f"到期任务 ({start} ~ {end})"))
 
 
@@ -742,7 +845,7 @@ def command_search_completed(args: argparse.Namespace) -> None:
     project_ids = [args.project] if args.project else None
     tasks = list_completed_tasks(project_ids=project_ids, start_date=start, end_date=end)
     if args.project:
-        project_name = get_project_data(args.project).get("project", {}).get("name", args.project)
+        project_name = get_project_data(args.project, force=args.force).get("project", {}).get("name", args.project)
         for task in tasks:
             task.setdefault("_projectName", project_name)
     print(format_task_list(tasks, f"已完成任务 ({start} ~ {end})"))
@@ -773,7 +876,7 @@ def command_search_filter(args: argparse.Namespace) -> None:
 
 def command_search_inbox(args: argparse.Namespace) -> None:
     """收集箱。"""
-    project, tasks = get_inbox_data()
+    project, tasks = get_inbox_data(force=args.force)
     print(format_task_list(tasks, f"收集箱 ({project['name']})"))
 
 
@@ -797,7 +900,9 @@ def setup_args() -> argparse.ArgumentParser:
     project_parser = subparsers.add_parser("project", help="项目管理 (list/get/create/...)")
     project_sub = project_parser.add_subparsers(dest="sub", required=True, help="项目子命令")
     
-    project_sub.add_parser("list", help="列出所有项目").set_defaults(func=command_project_list)
+    p_list = project_sub.add_parser("list", help="列出所有项目")
+    p_list.add_argument("--force", action="store_true", help="强制从 API 更新")
+    p_list.set_defaults(func=command_project_list)
     
     p_info = project_sub.add_parser("info", help="查看项目元数据")
     p_info.add_argument("id", help="项目 ID")
@@ -805,6 +910,7 @@ def setup_args() -> argparse.ArgumentParser:
     
     p_get = project_sub.add_parser("get", help="查看项目任务详情")
     p_get.add_argument("id", help="项目 ID")
+    p_get.add_argument("--force", action="store_true", help="强制从 API 更新")
     p_get.set_defaults(func=command_project_get)
     
     p_create = project_sub.add_parser("create", help="创建新项目")
@@ -822,6 +928,8 @@ def setup_args() -> argparse.ArgumentParser:
     p_delete = project_sub.add_parser("delete", help="删除项目")
     p_delete.add_argument("id", help="项目 ID")
     p_delete.set_defaults(func=command_project_delete)
+
+    project_sub.add_parser("clear-cache", help="清除本地缓存数据").set_defaults(func=command_project_clear_cache)
 
     # Task
     task_parser = subparsers.add_parser("task", help="任务管理 (get/create/complete/...)")
@@ -887,23 +995,28 @@ def setup_args() -> argparse.ArgumentParser:
     search_parser = subparsers.add_parser("search", help="查询与筛选 (today/upcoming/filter/...)")
     search_sub = search_parser.add_subparsers(dest="sub", required=True, help="查询子命令")
     
-    search_sub.add_parser("today", help="今日到期待办").set_defaults(func=command_search_today)
+    s_today = search_sub.add_parser("today", help="今日到期待办")
+    s_today.add_argument("--force", action="store_true", help="强制更新")
+    s_today.set_defaults(func=command_search_today)
     
     s_upcoming = search_sub.add_parser("upcoming", help="未来几天到期待办")
     s_upcoming.add_argument("days", type=int, nargs="?", default=7, help="天数 (默认 7)")
     s_upcoming.add_argument("--project", help="限定项目 ID")
+    s_upcoming.add_argument("--force", action="store_true", help="强制更新")
     s_upcoming.set_defaults(func=command_search_upcoming)
     
     s_range = search_sub.add_parser("due-range", help="指定日期区间到期任务")
     s_range.add_argument("start", help="开始日期 (YYYY-MM-DD)")
     s_range.add_argument("end", help="结束日期 (YYYY-MM-DD)")
     s_range.add_argument("--project", help="限定项目 ID")
+    s_range.add_argument("--force", action="store_true", help="强制更新")
     s_range.set_defaults(func=command_search_due_range)
     
     s_completed = search_sub.add_parser("completed", help="查看已完成任务")
     s_completed.add_argument("start", help="开始日期")
     s_completed.add_argument("end", help="结束日期")
     s_completed.add_argument("--project", help="限定项目 ID")
+    s_completed.add_argument("--force", action="store_true", help="强制更新")
     s_completed.set_defaults(func=command_search_completed)
     
     s_filter = search_sub.add_parser("filter", help="高级筛选查询")
@@ -915,7 +1028,9 @@ def setup_args() -> argparse.ArgumentParser:
     s_filter.add_argument("--status", help="状态 (0=未完成, 2=完成)")
     s_filter.set_defaults(func=command_search_filter)
     
-    search_sub.add_parser("inbox", help="查看收集箱任务").set_defaults(func=command_search_inbox)
+    s_inbox = search_sub.add_parser("inbox", help="查看收集箱任务")
+    s_inbox.add_argument("--force", action="store_true", help="强制更新")
+    s_inbox.set_defaults(func=command_search_inbox)
 
     return parser
 

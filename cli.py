@@ -105,10 +105,9 @@ class DidaCLI:
 
     def get_inbox_data(self, force: bool = False) -> Tuple[Project, List[Task]]:
         """获取收集箱。"""
-        
-        data = self.get_project_data("inbox", force=force)
-        return data.get("tasks", [])
 
+        data = self.get_project_data("inbox", force=force)
+        return data.get("project"), data.get("tasks", [])
     # --- 辅助方法 ---
 
     def _get_task_date(self, task: Task, field: str) -> str:

@@ -1,5 +1,6 @@
 .env
 .dida-token.json
+.dida-cache.json
 __pycache__/
 *.pyc
 *.pyo

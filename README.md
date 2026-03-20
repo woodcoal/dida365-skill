@@ -2,8 +2,6 @@
 
 `dida365-skill` 是一个基于 Python 3 标准库实现的 Claude Code / Gemini CLI Skill / OpenClaw Skill，用于通过 Dida365 (滴答清单) / TickTick OpenAPI 管理任务和项目。
 
-![image](https://github.com/user-attachments/assets/00232091-aa72-4171-a3ab-da91cec3f1dc)
-
 它的目标是提供一组稳定、可组合的 CLI 子命令，让 AI 模型能够可靠地完成任务创建、查询、更新、删除、项目管理和高级字段操作。
 
 ## 🌟 主要能力
@@ -105,7 +103,7 @@ JSON
 
 ## 🤝 致谢与版权说明
 
-本项目的最初版本由 [fanxing-6](https://github.com/fanxing-6/dida365-skill) 开发。
+本项目的最初版本由 [fanxing-6](https://github.com/fanxing-6/dida365-skill) 开发，目前进行了优化并重构。
 
 本项目基于 **MIT License** 开源。在保留原作者版权信息的基础上，由 [woodcoal](https://github.com/woodcoal) 进行了优化与功能扩展，包括但不限于：
 

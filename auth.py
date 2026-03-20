@@ -56,21 +56,28 @@ def load_token_data() -> dict[str, Any]:
 
 
 def get_access_token() -> str:
-    load_env_file()
+    """获取当前的 access token。"""
+    # 优先从环境变量获取（手动设置模式）
     manual_token = os.environ.get("DIDA_ACCESS_TOKEN")
     if manual_token:
         return manual_token
 
+    # 其次从本地缓存文件获取
     if TOKEN_FILE.exists():
-        token_data = load_token_data()
-        access_token = token_data.get("access_token")
-        if access_token:
-            return access_token
+        try:
+            token_data = load_token_data()
+            access_token = token_data.get("access_token")
+            if access_token:
+                return access_token
+        except Exception:
+            pass
 
+    # 如果都没有，提示用户进行授权
     raise RuntimeError("未找到 access token。请先运行: python3 index.py auth")
 
 
 def _require_oauth_client() -> tuple[str, str]:
+    """确保 client_id 和 client_secret 已配置。"""
     load_env_file()
     client_id = os.environ.get("DIDA_CLIENT_ID")
     client_secret = os.environ.get("DIDA_CLIENT_SECRET")
@@ -80,6 +87,7 @@ def _require_oauth_client() -> tuple[str, str]:
 
 
 def _request_token(payload: dict[str, str], client_id: str, client_secret: str) -> dict[str, Any]:
+    """发送 Token 相关请求（使用 Basic Auth）。"""
     basic_auth = base64.b64encode(f"{client_id}:{client_secret}".encode("utf-8")).decode("ascii")
     body = urllib.parse.urlencode(payload).encode("utf-8")
     request = urllib.request.Request(
@@ -96,11 +104,15 @@ def _request_token(payload: dict[str, str], client_id: str, client_secret: str) 
         with urllib.request.urlopen(request) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        text = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"Token 换取失败: HTTP {exc.code} - {text}") from exc
+        try:
+            error_text = exc.read().decode("utf-8", errors="replace")
+        except Exception:
+            error_text = str(exc)
+        raise RuntimeError(f"Token 请求失败: HTTP {exc.code} - {error_text}") from exc
 
 
 def exchange_token(code: str, client_id: str, client_secret: str, redirect_uri: str) -> dict[str, Any]:
+    """使用授权码换取 Token。"""
     return _request_token(
         {
             "code": code,
@@ -113,17 +125,17 @@ def exchange_token(code: str, client_id: str, client_secret: str, redirect_uri: 
 
 
 def refresh_access_token() -> str:
-    load_env_file()
+    """自动刷新 access token。"""
     if os.environ.get("DIDA_ACCESS_TOKEN"):
-        raise RuntimeError("使用 DIDA_ACCESS_TOKEN 时无法自动刷新，请更新环境变量中的 token。")
+        raise RuntimeError("使用 DIDA_ACCESS_TOKEN 环境变量时无法自动刷新。")
 
     if not TOKEN_FILE.exists():
-        raise RuntimeError("未找到 token 文件，无法刷新 access token。")
+        raise RuntimeError("未找到 token 文件，无法刷新。")
 
     token_data = load_token_data()
     refresh_token = token_data.get("refresh_token")
     if not refresh_token:
-        raise RuntimeError("当前 token 不包含 refresh_token，请重新运行授权流程。")
+        raise RuntimeError("当前存储的 Token 不包含 refresh_token，请重新运行授权流程。")
 
     client_id, client_secret = _require_oauth_client()
     refreshed = _request_token(
@@ -136,6 +148,7 @@ def refresh_access_token() -> str:
         client_secret,
     )
 
+    # 保持原有的 refresh_token (如果响应中没给新的)
     if "refresh_token" not in refreshed:
         refreshed["refresh_token"] = refresh_token
 
@@ -144,6 +157,7 @@ def refresh_access_token() -> str:
 
 
 class CallbackHandler(BaseHTTPRequestHandler):
+    """处理 OAuth 回调的 HTTP Handler。"""
     def do_GET(self) -> None:  # noqa: N802
         parsed = urllib.parse.urlparse(self.path)
         params = urllib.parse.parse_qs(parsed.query)
@@ -154,82 +168,60 @@ class CallbackHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
 
+        msg = "<h1>授权成功</h1><p>请返回终端继续。</p>"
         if error:
-            self.server.auth_result = {"error": error}  # type: ignore[attr-defined]
-            self.wfile.write(
-                "<h1>授权失败</h1><p>请关闭此页面，返回终端重试。</p>".encode("utf-8")
-            )
-            return
-
-        if code:
-            self.server.auth_result = {"code": code}  # type: ignore[attr-defined]
-            self.wfile.write(
-                "<h1>授权成功</h1><p>请关闭此页面，返回终端继续。</p>".encode("utf-8")
-            )
-            return
-
-        self.server.auth_result = {"error": "missing_code"}  # type: ignore[attr-defined]
-        self.wfile.write("<h1>未收到授权码</h1>".encode("utf-8"))
+            self.server.auth_result = {"error": error}
+            msg = f"<h1>授权失败</h1><p>错误原因: {error}</p>"
+        elif code:
+            self.server.auth_result = {"code": code}
+        else:
+            self.server.auth_result = {"error": "missing_code"}
+            msg = "<h1>错误</h1><p>未收到授权码。</p>"
+        
+        self.wfile.write(msg.encode("utf-8"))
 
     def log_message(self, format: str, *args: Any) -> None:
-        return
+        pass
 
 
 def _wait_for_callback(port: int) -> str:
+    """启动本地服务器等待回调。"""
     server = HTTPServer(("127.0.0.1", port), CallbackHandler)
-    server.auth_result = {}  # type: ignore[attr-defined]
+    server.auth_result = {}
     try:
         server.handle_request()
-        auth_result = server.auth_result  # type: ignore[attr-defined]
+        auth_result = server.auth_result
     finally:
         server.server_close()
 
-    error = auth_result.get("error")
-    if error:
-        raise RuntimeError(f"授权失败: {error}")
-
-    code = auth_result.get("code")
-    if not code:
-        raise RuntimeError("授权失败，未获取到 authorization code")
-    return code
+    if "error" in auth_result:
+        raise RuntimeError(f"授权回调错误: {auth_result['error']}")
+    return auth_result["code"]
 
 
 def run_oauth_flow(authorization_code: str | None = None) -> None:
-    load_env_file()
+    """运行完整的 OAuth 授权流程。"""
     client_id, client_secret = _require_oauth_client()
     port = int(os.environ.get("DIDA_CALLBACK_PORT", str(DEFAULT_CALLBACK_PORT)))
     redirect_uri = f"http://localhost:{port}/callback"
-    scope = "tasks:write tasks:read"
-    auth_url = (
-        f"{OAUTH_BASE}/authorize?"
-        + urllib.parse.urlencode(
-            {
-                "client_id": client_id,
-                "scope": scope,
-                "redirect_uri": redirect_uri,
-                "response_type": "code",
-            }
-        )
-    )
-
-    print("\n=== 滴答清单 OAuth 授权 ===\n")
-
+    
     if authorization_code:
         code = authorization_code
-        print("使用手动提供的 authorization code 交换 access token...\n")
     else:
-        print("请在浏览器中打开以下链接完成授权:\n")
-        print(auth_url)
-        print(
-            "\n等待授权回调...\n"
-            "如果当前环境是远程服务器，可在本机浏览器完成授权后，"
-            "从重定向地址里复制 code，再执行:\n"
-            "python3 index.py auth --code <authorization_code>\n"
+        auth_url = (
+            f"{OAUTH_BASE}/authorize?"
+            + urllib.parse.urlencode({
+                "client_id": client_id,
+                "scope": "tasks:write tasks:read",
+                "redirect_uri": redirect_uri,
+                "response_type": "code",
+            })
         )
+        print(f"\n请在浏览器中打开以下链接完成授权:\n\n{auth_url}\n")
+        print("等待回调中...")
         code = _wait_for_callback(port)
-        print("收到授权码，正在换取 access token...")
 
+    print("正在换取 access token...")
     token_data = exchange_token(code, client_id, client_secret, redirect_uri)
     save_token(token_data)
-    print("授权成功。Token 已保存到 .dida-token.json")
-    print("现在可以使用其他命令了，如: python3 index.py projects")
+    print("\n授权成功！Token 已保存。")

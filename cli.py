@@ -107,7 +107,8 @@ class DidaCLI:
         """获取收集箱。"""
 
         data = self.get_project_data("inbox", force=force)
-        return data.get("project"), data.get("tasks", [])
+        project = data.get("project") or {"id": "inbox", "name": "收集箱"}
+        return project, data.get("tasks", [])
     # --- 辅助方法 ---
 
     def _get_task_date(self, task: Task, field: str) -> str:

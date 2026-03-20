@@ -444,6 +444,52 @@ def format_task_detail(task: dict[str, Any]) -> str:
 
 # --- 转换工具 ---
 
+def repair_argv() -> None:
+    """尝试修复模型可能生成的连体命令 (例如 project updateabcd -> project update abcd)。"""
+    if len(sys.argv) < 2:
+        return
+
+    # 1. 修复分类连体: projectupdate -> project update
+    categories = ["project", "task", "search", "auth", "check"]
+    cat_arg = sys.argv[1]
+    if cat_arg not in categories:
+        for cat in categories:
+            if cat_arg.startswith(cat) and len(cat_arg) > len(cat):
+                remainder = cat_arg[len(cat):]
+                sys.argv[1] = cat
+                sys.argv.insert(2, remainder)
+                break
+
+    # 2. 修复子命令连体: updateabcd -> update abcd
+    if len(sys.argv) < 3:
+        return
+
+    commands = {
+        "project": ["list", "info", "get", "create", "update", "delete"],
+        "task": [
+            "get", "create-raw", "create-checklist", "create", 
+            "update-raw", "update", "complete", "delete", "move"
+        ],
+        "search": ["today", "upcoming", "due-range", "completed", "filter", "inbox"],
+    }
+
+    category = sys.argv[1]
+    if category in commands:
+        sub_arg = sys.argv[2]
+        valid_subs = commands[category]
+        if sub_arg not in valid_subs:
+            # 匹配最长的有效子命令前缀
+            best_match = ""
+            for v in valid_subs:
+                if sub_arg.startswith(v) and len(v) > len(best_match):
+                    best_match = v
+            
+            if best_match and len(sub_arg) > len(best_match):
+                remainder = sub_arg[len(best_match):]
+                sys.argv[2] = best_match
+                sys.argv.insert(3, remainder)
+
+
 def normalize_date(date_str: str | None) -> str | None:
     """标准化日期字符串。"""
     if not date_str:
@@ -876,6 +922,7 @@ def setup_args() -> argparse.ArgumentParser:
 
 def main() -> None:
     load_env_file()
+    repair_argv()
     parser = setup_args()
     args = parser.parse_args()
     

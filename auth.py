@@ -14,7 +14,9 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
 
+
 TOKEN_FILE = Path(__file__).with_name(".dida-token.json")
+
 DEFAULT_CALLBACK_PORT = 18365
 OAUTH_BASE = "https://dida365.com/oauth"
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import json
 import sys
 from datetime import datetime, timedelta
@@ -136,6 +137,20 @@ class DidaCLI:
         """通用 API 日期解析。"""
         if not value:
             return None
+    def _resolve_project_id(self, project_name_or_id: str) -> str:
+        """根据项目名称或 ID 解析为项目 ID。"""
+        # 如果已经是 ID 格式（24 位十六进制），直接返回
+        if re.match(r'^[0-9a-f]{24}$', project_name_or_id):
+            return project_name_or_id
+        # 否则按名称查找
+        projects = self.list_projects()
+        for p in projects:
+            if p.get('name') == project_name_or_id:
+                return p['id']
+        # 没找到，假设传入的就是 ID
+        return project_name_or_id
+
+
         if isinstance(value, (int, float)):
             ts = float(value)
             if ts > 1e11: ts /= 1000
@@ -198,8 +213,8 @@ def cmd_project_list(args, cli: DidaCLI):
     print("\n".join(lines))
 
 def cmd_project_get(args, cli: DidaCLI):
-    print(cli.format_project_detail(cli.get_project_data(args.id, force=args.force)))
-
+    project_id = cli._resolve_project_id(args.id)
+    print(cli.format_project_detail(cli.get_project_data(project_id, force=args.force)))
 def cmd_project_create(args, cli: DidaCLI):
     payload: Project = {"name": args.name}
     if args.color: payload["color"] = args.color
@@ -295,13 +310,13 @@ def cmd_task_get(args, cli: DidaCLI):
     print(json.dumps(task, ensure_ascii=False, indent=2))
 
 def cmd_task_complete(args, cli: DidaCLI):
-    cli.client.complete_task(args.project, args.id)
-    invalidate_project_cache(args.project)
+    project_id = cli._resolve_project_id(args.project)
+    cli.client.complete_task(project_id, args.id)
     print(f"任务已完成: {args.id}")
 
 def cmd_task_delete(args, cli: DidaCLI):
-    cli.client.delete_task(args.project, args.id)
-    invalidate_project_cache(args.project)
+    project_id = cli._resolve_project_id(args.project)
+    cli.client.delete_task(project_id, args.id)
     print(f"任务已删除: {args.id}")
 
 def cmd_task_move(args, cli: DidaCLI):

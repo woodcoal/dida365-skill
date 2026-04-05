@@ -170,33 +170,15 @@ dida365-skill/
 └── tests/               # 测试
 ```
 
-dida365-skill/
-├── SKILL.md # AI Agent 使用说明（SKILL.md 标准格式）
-├── README.md # 用户使用文档
-├── index.py # CLI 入口（shim）
-├── .env.example # 环境变量模板
-├── cli/ # CLI 脚本
-│ ├── index.py # CLI 入口
-│ ├── main.py # 主逻辑
-│ ├── auth.py # OAuth 授权
-│ ├── client.py # API 客户端
-│ ├── models.py # 数据模型
-│ └── cache.py # 缓存管理
-├── reference/ # 参考文档
-│ └── Dida365 Open API.md
-└── tests/ # 测试
-
-```
-
 ---
 
 ## 故障排除
 
-| 问题 | 解决方案 |
-|------|----------|
-| 授权失败 | 确认 `.env` 中 Client ID 和 Secret 正确，重新运行 `python cli/index.py auth` |
-| 数据不同步 | 在命令后添加 `--force` 参数强制刷新 |
-| API 限流 | 减少查询频率，或使用 `--json` 减少输出处理 |
+| 问题       | 解决方案                                                                     |
+| ---------- | ---------------------------------------------------------------------------- |
+| 授权失败   | 确认 `.env` 中 Client ID 和 Secret 正确，重新运行 `python cli/index.py auth` |
+| 数据不同步 | 在命令后添加 `--force` 参数强制刷新                                          |
+| API 限流   | 减少查询频率，或使用 `--json` 减少输出处理                                   |
 
 ---
 
@@ -205,6 +187,7 @@ dida365-skill/
 本项目基于 [fanxing-6/dida365-skill](https://github.com/fanxing-6/dida365-skill) 开发。
 
 由 [woodcoal](https://github.com/woodcoal) 进行优化与功能扩展，包括：
+
 - 优化 CLI 命令结构，支持更清晰的层级调用
 - 增强 Checklist 和高级 JSON 字段的处理能力
 - 完善面向 AI Agent 的 `SKILL.md` 文档
@@ -214,4 +197,3 @@ dida365-skill/
 **声明**：本工具并非滴答清单官方出品。
 
 基于 **MIT License** 开源。
-```

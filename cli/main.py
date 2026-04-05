@@ -186,6 +186,34 @@ class DidaCLI:
         """通用 API 日期解析。"""
         if not value:
             return None
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            s = value.strip()
+            # 处理 Z 结尾
+            if s.endswith('Z'):
+                s = s[:-1] + '+0000'
+            # 处理毫秒和时区 .000+0000 -> .000000+0000
+            if '.' in s:
+                parts = s.split('.', 1)
+                main = parts[0]
+                rest = parts[1]
+                # 分离微秒和时区
+                if '+' in rest:
+                    ms_part, tz_part = rest.split('+', 1)
+                    # 确保微秒有6位
+                    ms_part = ms_part.ljust(6, '0')
+                    s = f"{main}.{ms_part}+{tz_part}"
+                elif '-' in rest and rest.count('-') > 1:
+                    ms_part, tz_part = rest.split('-', 1)
+                    ms_part = ms_part.ljust(6, '0')
+                    s = f"{main}.{ms_part}-{tz_part}"
+            try:
+                return datetime.fromisoformat(s)
+            except Exception:
+                pass
+        return None
+
     def _resolve_project_id(self, project_name_or_id: str) -> str:
         """根据项目名称或 ID 解析为项目 ID。"""
         # 如果已经是 ID 格式（24 位十六进制），直接返回
@@ -208,12 +236,18 @@ class DidaCLI:
         for t in tasks:
             prio = PRIORITY_LABELS.get(t.get("priority", 0), "  ")
             due = self._get_task_date(t, "dueDate")
+            start = self._get_task_date(t, "startDate")
             due_str = f" 截止:{due}" if due else ""
-            tags = f" [{','.join(t.get('tags', []))}]" if t.get("tags") else ""
-            proj = f" ({t['_projectName']})" if "_projectName" in t else ""
+            start_str = f" 开始:{start}" if start else ""
+            allday = " 全天" if t.get("isAllDay") else ""
+            tags = f" 标签:[{','.join(t.get('tags', []))}]" if t.get("tags") else ""
+            proj = f" 项目:{t['_projectName']}" if "_projectName" in t else ""
             status = " ✓" if t.get("status") == 2 else ""
-            lines.append(f"  [{prio}] {t.get('title', '')}{status}{due_str}{tags}{proj}")
+            lines.append(f"  [{prio}] {t.get('title', '')}{status}{due_str}{start_str}{allday}{tags}{proj}")
             lines.append(f"       ID: {t.get('id')}  项目ID: {t.get('projectId')}")
+            desc = t.get("desc", "")
+            if desc:
+                lines.append(f"       描述: {desc[:50]}{'...' if len(desc) > 50 else ''}")
         lines.append(f"\n共 {len(tasks)} 个任务")
         return "\n".join(lines)
 
@@ -227,10 +261,16 @@ class DidaCLI:
             for t in tasks:
                 prio = PRIORITY_LABELS.get(t.get("priority", 0), "  ")
                 due = self._get_task_date(t, "dueDate")
+                start = self._get_task_date(t, "startDate")
                 due_str = f" 截止:{due}" if due else ""
+                start_str = f" 开始:{start}" if start else ""
+                allday = " 全天" if t.get("isAllDay") else ""
                 status = " ✓" if t.get("status") == 2 else ""
-                lines.append(f"  [{prio}] {t.get('title')}{status}{due_str}")
+                lines.append(f"  [{prio}] {t.get('title')}{status}{due_str}{start_str}{allday}")
                 lines.append(f"       ID: {t.get('id')}")
+                desc = t.get("desc", "")
+                if desc:
+                    lines.append(f"       描述: {desc[:50]}{'...' if len(desc) > 50 else ''}")
         lines.append(f"\n共 {len(tasks)} 个任务")
         return "\n".join(lines)
 

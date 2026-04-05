@@ -16,6 +16,8 @@ from cache import get_cached_data, set_cached_data, invalidate_project_cache, cl
 from client import Dida365Client
 from models import Project, Task
 
+# 先加载 .env 文件，确保环境变量在模块初始化时就可用
+load_env_file()
 
 try:
     from zoneinfo import ZoneInfo
@@ -25,8 +27,33 @@ except ImportError:
 
 PRIORITY_LABELS = {0: "  ", 1: "低", 3: "中", 5: "高"}
 
-# 获取隐藏清单的前缀配置，默认为空（不隐藏任何清单）
-HIDDEN_PREFIX = os.environ.get("DIDA_LIST_HIDDEN_PREFIX", "")
+# 获取隐藏清单的字符配置，默认为空（不隐藏任何清单）
+HIDDEN_SUBSTRING = os.environ.get("DIDA_LIST_HIDDEN", "")
+
+
+def _strip_emoji_prefix(name: str) -> str:
+    """
+    去除字符串开头的 emoji 符号。
+    
+    :param name: 原始清单名称
+    :return: 去除 emoji 后的名称
+    """
+    # 键帽 emoji: 数字 + FE0F (Variation Selector-16) + 20E3 (Combining Enclosing Keycap)
+    keycap_vs = '\ufe0f'  # Variation Selector-16
+    keycap_base = '\u20e3'  # 组合键帽符号
+    
+    while name:
+        # 检查是否是键帽emoji (数字 + VS16 + 组合字符)
+        if len(name) >= 3 and name[0].isdigit():
+            if name[1] == keycap_vs and name[2] == keycap_base:
+                name = name[3:]
+                continue
+        # 检查普通 emoji (单字符，范围 0x1F300-0x1FAFF)
+        if name and 0x1F300 <= ord(name[0]) <= 0x1FAFF:
+            name = name[1:]
+            continue
+        break
+    return name
 
 
 class DidaCLI:
@@ -45,7 +72,7 @@ class DidaCLI:
         列出所有项目（带缓存支持）。
         
         :param force: 是否强制从服务器刷新数据
-        :param include_hidden: 是否包含隐藏的清单（以 HIDDEN_PREFIX 开头的清单）
+        :param include_hidden: 是否包含隐藏的清单（包含 HIDDEN_SUBSTRING 的清单）
         :return: 项目列表
         """
         if not force:
@@ -59,15 +86,15 @@ class DidaCLI:
     
     def _filter_hidden_projects(self, projects: List[Project], include_hidden: bool = False) -> List[Project]:
         """
-        根据 HIDDEN_PREFIX 过滤隐藏的清单。
+        根据 HIDDEN_SUBSTRING 过滤隐藏的清单。
         
         :param projects: 原始项目列表
         :param include_hidden: 是否包含隐藏的清单
         :return: 过滤后的项目列表
         """
-        if not HIDDEN_PREFIX or include_hidden:
+        if not HIDDEN_SUBSTRING or include_hidden:
             return projects
-        return [p for p in projects if not p.get("name", "").startswith(HIDDEN_PREFIX)]
+        return [p for p in projects if HIDDEN_SUBSTRING not in p.get("name", "")]
 
     def get_project_data(self, project_id: str, force: bool = False) -> Dict[str, Any]:
         """获取项目数据（带缓存支持）。"""
@@ -169,21 +196,9 @@ class DidaCLI:
         for p in projects:
             if p.get('name') == project_name_or_id:
                 return p['id']
+
         # 没找到，假设传入的就是 ID
         return project_name_or_id
-
-
-        if isinstance(value, (int, float)):
-            ts = float(value)
-            if ts > 1e11: ts /= 1000
-            return datetime.fromtimestamp(ts, tz=datetime.now().astimezone().tzinfo)
-        
-        for fmt in ("%Y-%m-%dT%H:%M:%S.%f%z", "%Y-%m-%dT%H:%M:%S%z"):
-            try:
-                return datetime.strptime(value, fmt)
-            except ValueError:
-                continue
-        return None
 
     # --- 格式化方法 ---
 
@@ -245,8 +260,8 @@ def cmd_project_list(args, cli: DidaCLI):
             lines.append(f"  [{p['id']}] {p['name']}{archived}")
         
         # 显示隐藏清单的提示信息（仅当有隐藏清单且设置了隐藏前缀时）
-        if hidden_count > 0 and HIDDEN_PREFIX:
-            lines.append(f"\n共 {len(projects)} 个项目（已隐藏 {hidden_count} 个以 '{HIDDEN_PREFIX}' 开头的清单）")
+        if hidden_count > 0 and HIDDEN_SUBSTRING:
+            lines.append(f"\n共 {len(projects)} 个项目（已隐藏 {hidden_count} 个包含 '{HIDDEN_SUBSTRING}' 的清单）")
         else:
             lines.append(f"\n共 {len(projects)} 个项目")
         
@@ -478,153 +493,153 @@ def setup_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # Auth
-    p_auth = subparsers.add_parser("auth", help="认证")
-    p_auth.add_argument("--code", help="手动授权码")
+    p_auth = subparsers.add_parser("auth", help="认证授权", description="进行 OAuth 授权获取访问令牌")
+    p_auth.add_argument("--code", help="手动授权码（如果无法自动打开浏览器）")
     p_auth.set_defaults(func=cmd_auth)
 
     # Project
-    p_proj = subparsers.add_parser("project", help="项目管理")
+    p_proj = subparsers.add_parser("project", help="项目管理", description="项目管理的各种子命令")
     ps_proj = p_proj.add_subparsers(dest="sub", required=True)
     
-    pp_list = ps_proj.add_parser("list", help="列表")
-    pp_list.add_argument("--force", action="store_true")
+    pp_list = ps_proj.add_parser("list", help="列出所有项目", description="列出所有项目（可隐藏包含指定字符的项目）")
+    pp_list.add_argument("--force", action="store_true", help="强制从服务器刷新数据")
     pp_list.add_argument("--json", action="store_true", help="以 JSON 格式输出")
     pp_list.set_defaults(func=cmd_project_list)
     
-    pp_get = ps_proj.add_parser("get", help="详情")
-    pp_get.add_argument("id")
-    pp_get.add_argument("--force", action="store_true")
+    pp_get = ps_proj.add_parser("get", help="获取项目详情", description="查看指定项目的详细信息")
+    pp_get.add_argument("id", help="项目ID")
+    pp_get.add_argument("--force", action="store_true", help="强制从服务器刷新数据")
     pp_get.add_argument("--json", action="store_true", help="以 JSON 格式输出")
     pp_get.set_defaults(func=cmd_project_get)
     
-    pp_create = ps_proj.add_parser("create", help="创建")
-    pp_create.add_argument("name")
-    pp_create.add_argument("--color")
-    pp_create.add_argument("--kind", choices=["TASK", "NOTE"])
-    pp_create.add_argument("--view-mode", choices=["list", "kanban", "timeline"])
-    pp_create.add_argument("--sort-order", type=int)
+    pp_create = ps_proj.add_parser("create", help="创建项目", description="创建一个新项目")
+    pp_create.add_argument("name", help="项目名称")
+    pp_create.add_argument("--color", help="项目颜色（颜色代码）")
+    pp_create.add_argument("--kind", choices=["TASK", "NOTE"], help="项目类型（TASK=任务，NOTE=清单）")
+    pp_create.add_argument("--view-mode", choices=["list", "kanban", "timeline"], help="视图模式")
+    pp_create.add_argument("--sort-order", type=int, help="排序顺序")
     pp_create.set_defaults(func=cmd_project_create)
     
-    pp_update = ps_proj.add_parser("update", help="更新")
-    pp_update.add_argument("id")
-    pp_update.add_argument("--name")
-    pp_update.add_argument("--color")
-    pp_update.add_argument("--view-mode", choices=["list", "kanban", "timeline"])
-    pp_update.add_argument("--sort-order", type=int)
+    pp_update = ps_proj.add_parser("update", help="更新项目", description="更新项目信息")
+    pp_update.add_argument("id", help="项目ID")
+    pp_update.add_argument("--name", help="新项目名称")
+    pp_update.add_argument("--color", help="项目颜色")
+    pp_update.add_argument("--view-mode", choices=["list", "kanban", "timeline"], help="视图模式")
+    pp_update.add_argument("--sort-order", type=int, help="排序顺序")
     pp_update.set_defaults(func=cmd_project_update)
     
-    pp_info = ps_proj.add_parser("info")
-    pp_info.add_argument("id")
+    pp_info = ps_proj.add_parser("info", help="查看项目信息", description="查看项目的简要信息")
+    pp_info.add_argument("id", help="项目ID")
     pp_info.add_argument("--json", action="store_true", help="以 JSON 格式输出")
     pp_info.set_defaults(func=cmd_project_info)
     
-    ps_proj.add_parser("delete").add_argument("id")
+    ps_proj.add_parser("delete", help="删除项目", description="删除指定项目").add_argument("id", help="项目ID")
     ps_proj.choices["delete"].set_defaults(func=cmd_project_delete)
     
-    ps_proj.add_parser("clear-cache").set_defaults(func=cmd_project_clear_cache)
+    ps_proj.add_parser("clear-cache", help="清除缓存", description="清除项目缓存数据").set_defaults(func=cmd_project_clear_cache)
 
     # Task
-    p_task = subparsers.add_parser("task", help="任务管理")
+    p_task = subparsers.add_parser("task", help="任务管理", description="任务管理的各种子命令")
     ps_task = p_task.add_subparsers(dest="sub", required=True)
     
-    t_get = ps_task.add_parser("get")
-    t_get.add_argument("project")
-    t_get.add_argument("id")
+    t_get = ps_task.add_parser("get", help="获取任务详情", description="查看指定任务的详细信息")
+    t_get.add_argument("project", help="项目ID或名称")
+    t_get.add_argument("id", help="任务ID")
     t_get.add_argument("--json", action="store_true", help="以 JSON 格式输出")
     t_get.set_defaults(func=cmd_task_get)
 
-    tt_checklist = ps_task.add_parser("create-checklist", help="创建清单任务")
-    tt_checklist.add_argument("title")
-    tt_checklist.add_argument("--project", required=True)
+    tt_checklist = ps_task.add_parser("create-checklist", help="创建清单任务", description="创建一个包含多个子项的任务")
+    tt_checklist.add_argument("title", help="任务标题")
+    tt_checklist.add_argument("--project", required=True, help="项目ID或名称")
     tt_checklist.add_argument("--items", required=True, help='子项，用 "|" 分隔')
-    tt_checklist.add_argument("--content")
-    tt_checklist.add_argument("--due")
-    tt_checklist.add_argument("--priority", type=int, choices=[0, 1, 3, 5])
+    tt_checklist.add_argument("--content", help="任务描述")
+    tt_checklist.add_argument("--due", help="截止日期（YYYY-MM-DD）")
+    tt_checklist.add_argument("--priority", type=int, choices=[0, 1, 3, 5], help="优先级（0=无，1=低，3=中，5=高）")
     tt_checklist.set_defaults(func=cmd_task_create_checklist)
     
-    tt_create = ps_task.add_parser("create", help="创建")
-    tt_create.add_argument("title")
-    tt_create.add_argument("--project")
-    tt_create.add_argument("--content")
-    tt_create.add_argument("--due")
-    tt_create.add_argument("--priority", type=int, choices=[0, 1, 3, 5])
-    tt_create.add_argument("--tags")
-    tt_create.add_argument("--all-day", type=lambda x: x.lower() == 'true')
-    tt_create.add_argument("--repeat")
-    tt_create.add_argument("--tz")
-    tt_create.add_argument("--desc")
+    tt_create = ps_task.add_parser("create", help="创建任务", description="创建一个新任务")
+    tt_create.add_argument("title", help="任务标题")
+    tt_create.add_argument("--project", help="项目ID或名称")
+    tt_create.add_argument("--content", help="任务描述")
+    tt_create.add_argument("--due", help="截止日期（YYYY-MM-DD）")
+    tt_create.add_argument("--priority", type=int, choices=[0, 1, 3, 5], help="优先级（0=无，1=低，3=中，5=高）")
+    tt_create.add_argument("--tags", help="标签（逗号分隔）")
+    tt_create.add_argument("--all-day", type=lambda x: x.lower() == 'true', help="是否全天（true/false）")
+    tt_create.add_argument("--repeat", help="重复规则")
+    tt_create.add_argument("--tz", help="时区")
+    tt_create.add_argument("--desc", help="详细描述")
     tt_create.set_defaults(func=cmd_task_create)
     
-    tt_update = ps_task.add_parser("update")
-    tt_update.add_argument("project")
-    tt_update.add_argument("id")
-    tt_update.add_argument("--title")
-    tt_update.add_argument("--content")
-    tt_update.add_argument("--due")
-    tt_update.add_argument("--priority", type=int, choices=[0, 1, 3, 5])
-    tt_update.add_argument("--tags")
-    tt_update.add_argument("--all-day", type=lambda x: x.lower() == 'true')
-    tt_update.add_argument("--repeat")
-    tt_update.add_argument("--tz")
-    tt_update.add_argument("--desc")
+    tt_update = ps_task.add_parser("update", help="更新任务", description="更新任务信息")
+    tt_update.add_argument("project", help="项目ID或名称")
+    tt_update.add_argument("id", help="任务ID")
+    tt_update.add_argument("--title", help="新任务标题")
+    tt_update.add_argument("--content", help="任务描述")
+    tt_update.add_argument("--due", help="截止日期")
+    tt_update.add_argument("--priority", type=int, choices=[0, 1, 3, 5], help="优先级")
+    tt_update.add_argument("--tags", help="标签")
+    tt_update.add_argument("--all-day", type=lambda x: x.lower() == 'true', help="是否全天")
+    tt_update.add_argument("--repeat", help="重复规则")
+    tt_update.add_argument("--tz", help="时区")
+    tt_update.add_argument("--desc", help="详细描述")
     tt_update.set_defaults(func=cmd_task_update)
     
-    ps_task.add_parser("complete").add_argument("project")
-    ps_task.choices["complete"].add_argument("id")
+    ps_task.add_parser("complete", help="完成任务", description="标记指定任务为已完成").add_argument("project", help="项目ID或名称")
+    ps_task.choices["complete"].add_argument("id", help="任务ID")
     ps_task.choices["complete"].set_defaults(func=cmd_task_complete)
     
-    ps_task.add_parser("delete").add_argument("project")
-    ps_task.choices["delete"].add_argument("id")
+    ps_task.add_parser("delete", help="删除任务", description="删除指定任务").add_argument("project", help="项目ID或名称")
+    ps_task.choices["delete"].add_argument("id", help="任务ID")
     ps_task.choices["delete"].set_defaults(func=cmd_task_delete)
     
-    t_move = ps_task.add_parser("move")
-    t_move.add_argument("from_project")
-    t_move.add_argument("to_project")
-    t_move.add_argument("id")
+    t_move = ps_task.add_parser("move", help="移动任务", description="将任务从一个项目移动到另一个项目")
+    t_move.add_argument("from_project", help="源项目ID或名称")
+    t_move.add_argument("to_project", help="目标项目ID或名称")
+    t_move.add_argument("id", help="任务ID")
     t_move.set_defaults(func=cmd_task_move)
 
     # Search
-    p_search = subparsers.add_parser("search", help="查询")
+    p_search = subparsers.add_parser("search", help="查询任务", description="查询任务的各种子命令")
     ps_search = p_search.add_subparsers(dest="sub", required=True)
     
-    ps_today = ps_search.add_parser("today")
+    ps_today = ps_search.add_parser("today", help="查看今天的任务", description="查看今天需要完成的任务")
     ps_today.add_argument("--json", action="store_true", help="以 JSON 格式输出")
     ps_today.set_defaults(func=cmd_search_today, force=False)
     
-    ps_upcoming = ps_search.add_parser("upcoming")
-    ps_upcoming.add_argument("days", type=int, nargs="?", default=7)
-    ps_upcoming.add_argument("--project")
-    ps_upcoming.add_argument("--force", action="store_true")
+    ps_upcoming = ps_search.add_parser("upcoming", help="查看即将到期的任务", description="查看未来N天内需要完成的任务（默认7天）")
+    ps_upcoming.add_argument("days", type=int, nargs="?", default=7, help="查看未来多少天内的任务（默认7天）")
+    ps_upcoming.add_argument("--project", help="指定项目ID或名称筛选")
+    ps_upcoming.add_argument("--force", action="store_true", help="强制从服务器刷新数据")
     ps_upcoming.add_argument("--json", action="store_true", help="以 JSON 格式输出")
     ps_upcoming.set_defaults(func=cmd_search_upcoming)
     
-    ps_range = ps_search.add_parser("due-range")
-    ps_range.add_argument("start")
-    ps_range.add_argument("end")
-    ps_range.add_argument("--project")
-    ps_range.add_argument("--force", action="store_true")
+    ps_range = ps_search.add_parser("due-range", help="查看指定日期范围的任务", description="查看截止日在指定日期范围内的任务")
+    ps_range.add_argument("start", help="开始日期（YYYY-MM-DD）")
+    ps_range.add_argument("end", help="结束日期（YYYY-MM-DD）")
+    ps_range.add_argument("--project", help="指定项目ID或名称筛选")
+    ps_range.add_argument("--force", action="store_true", help="强制从服务器刷新数据")
     ps_range.add_argument("--json", action="store_true", help="以 JSON 格式输出")
     ps_range.set_defaults(func=cmd_search_due_range)
     
-    ps_completed = ps_search.add_parser("completed")
-    ps_completed.add_argument("start")
-    ps_completed.add_argument("end")
-    ps_completed.add_argument("--project")
+    ps_completed = ps_search.add_parser("completed", help="查看已完成的任务", description="查看在指定日期范围内已完成的任务")
+    ps_completed.add_argument("start", help="开始日期（YYYY-MM-DD）")
+    ps_completed.add_argument("end", help="结束日期（YYYY-MM-DD）")
+    ps_completed.add_argument("--project", help="指定项目ID或名称筛选")
     ps_completed.add_argument("--json", action="store_true", help="以 JSON 格式输出")
     ps_completed.set_defaults(func=cmd_search_completed)
     
-    ps_filter = ps_search.add_parser("filter")
-    ps_filter.add_argument("--project")
-    ps_filter.add_argument("--start")
-    ps_filter.add_argument("--end")
-    ps_filter.add_argument("--priority")
-    ps_filter.add_argument("--tags")
-    ps_filter.add_argument("--status")
+    ps_filter = ps_search.add_parser("filter", help="高级筛选任务", description="根据多个条件筛选任务（优先级、标签、状态等）")
+    ps_filter.add_argument("--project", help="指定项目ID或名称筛选")
+    ps_filter.add_argument("--start", help="开始日期（YYYY-MM-DD）")
+    ps_filter.add_argument("--end", help="结束日期（YYYY-MM-DD）")
+    ps_filter.add_argument("--priority", help="优先级筛选（1=低，3=中，5=高）")
+    ps_filter.add_argument("--tags", help="标签筛选（逗号分隔多个标签）")
+    ps_filter.add_argument("--status", help="状态筛选（0=未完成，2=已完成）")
     ps_filter.add_argument("--json", action="store_true", help="以 JSON 格式输出")
     ps_filter.set_defaults(func=cmd_search_filter)
     
-    ps_inbox = ps_search.add_parser("inbox")
-    ps_inbox.add_argument("--force", action="store_true")
+    ps_inbox = ps_search.add_parser("inbox", help="查看收集箱任务", description="查看收集箱中的所有任务")
+    ps_inbox.add_argument("--force", action="store_true", help="强制从服务器刷新数据")
     ps_inbox.add_argument("--json", action="store_true", help="以 JSON 格式输出")
     ps_inbox.set_defaults(func=cmd_search_inbox)
 

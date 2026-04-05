@@ -51,12 +51,12 @@ class TestDidaCLI(unittest.TestCase):
         ]
         
         # 保存原始值
-        original_prefix = os.environ.get("DIDA_LIST_HIDDEN_PREFIX")
+        original_prefix = os.environ.get("DIDA_LIST_HIDDEN_SUBSTRING")
         
         try:
             # 设置隐藏前缀为 "~"
-            os.environ["DIDA_LIST_HIDDEN_PREFIX"] = "~"
-            from cli import HIDDEN_PREFIX, DidaCLI
+            os.environ["DIDA_LIST_HIDDEN_SUBSTRING"] = "~"
+            from cli import HIDDEN_SUBSTRING, DidaCLI
             cli = DidaCLI()
             
             # 测试过滤功能
@@ -75,9 +75,9 @@ class TestDidaCLI(unittest.TestCase):
         finally:
             # 恢复原始值
             if original_prefix is None:
-                os.environ.pop("DIDA_LIST_HIDDEN_PREFIX", None)
+                os.environ.pop("DIDA_LIST_HIDDEN_SUBSTRING", None)
             else:
-                os.environ["DIDA_LIST_HIDDEN_PREFIX"] = original_prefix
+                os.environ["DIDA_LIST_HIDDEN_SUBSTRING"] = original_prefix
 
 
 if __name__ == "__main__":

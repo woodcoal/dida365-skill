@@ -2,7 +2,7 @@
 """Dida365 CLI skill entrypoint."""
 
 import sys
-from cli import main
+from main import main
 
 # Windows 下强制 UTF-8 输出编码
 if sys.platform == 'win32':

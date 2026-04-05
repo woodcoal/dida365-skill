@@ -1,35 +1,33 @@
 # dida365-skill
 
-`dida365-skill` 是一个基于 Python 3 标准库实现的 Claude Code / Gemini CLI Skill / OpenClaw Skill，用于通过 Dida365 (滴答清单) / TickTick OpenAPI 管理任务和项目。
+基于 Python 3 标准库实现的滴答清单/TickTick CLI 工具，支持通过命令行管理任务和项目。
 
-它的目标是提供一组稳定、可组合的 CLI 子命令，让 AI 模型能够可靠地完成任务创建、查询、更新、删除、项目管理和高级字段操作。
+## 核心能力
 
-## 🌟 主要能力
+- **OAuth 2.0 授权**：完整的授权流程支持
+- **项目管理**：创建、更新、删除及列出所有清单
+- **任务管理**：增删改查、标记完成、跨项目移动
+- **高级任务**：支持 Checklist（清单任务）和高级字段
+- **智能查询**：今日待办、未来到期、指定区间、已完成任务、高级筛选
+- **零依赖**：仅使用 Python 标准库，无需安装第三方包
 
-- **OAuth 2.0 授权**：完整的授权流支持。
-- **项目管理**：创建、更新、删除及列出所有清单。
-- **任务管理**：增删改查、标记完成、跨项目移动。
-- **高级任务**：支持 Checklist (子任务) 以及通过 JSON 传入 OpenAPI 高级字段。
-- **智能查询**：今日待办、未来到期、指定区间到期/已完成任务、高级筛选。
-- **零依赖**：仅使用 Python 标准库，无需安装任何第三方包。
+---
 
-## 🛠️ 快速开始
+## 快速开始
 
 ### 1. 创建开发者应用
 
-1. 登录 [滴答清单开发者平台](https://developer.dida365.com/manage)。
-2. 创建新应用，并将 `OAuth redirect URL` 设置为：`http://localhost:18365/callback`。
-3. 获取 `Client ID` 和 `Client Secret`。
+1. 登录 [滴答清单开发者平台](https://developer.dida365.com/manage)
+2. 创建新应用，设置 **OAuth redirect URL** 为：`http://localhost:18365/callback`
+3. 获取 `Client ID` 和 `Client Secret`
 
 ### 2. 配置环境
 
 ```bash
+# 复制环境变量模板
 cp .env.example .env
-```
 
-编辑 `.env` 文件，填入你的凭据：
-
-```dotenv
+# 编辑 .env 文件，填入你的凭据
 DIDA_CLIENT_ID=your_client_id
 DIDA_CLIENT_SECRET=your_client_secret
 ```
@@ -37,80 +35,183 @@ DIDA_CLIENT_SECRET=your_client_secret
 ### 3. 完成授权
 
 ```bash
-python3 index.py auth
+python cli/index.py auth
 ```
 
-按照提示在浏览器中完成授权。如果是远程服务器，可使用 `--code` 参数手动提交授权码。
-
-## 📖 常用命令示例
-
-### 项目清单
-
-- **列出清单**：`python3 index.py project list`
-- **查看项目任务**：`python3 index.py project get <projectId>`
-- **创建清单**：`python3 index.py project create "工作"`
-
-### 任务操作
-
-- **创建任务**：`python3 index.py task create "写周报" --due 2026-03-20 --priority 5`
-- **创建清单任务**：`python3 index.py task create-checklist "出差" --items "订票|订酒店"`
-- **查看任务详情**：`python3 index.py task get <projectId> <taskId>`
-- **完成任务**：`python3 index.py task complete <projectId> <taskId>`
-
-### 查询与筛选
-
-- **今日任务**：`python3 index.py search today`
-- **未来 10 天任务**：`python3 index.py search upcoming 10`
-- **高级筛选**：`python3 index.py search filter --priority 3,5 --tags 工作`
-- **查看收集箱**：`python3 index.py search inbox`
-
-## ⚡ 性能优化与缓存
-
-为了减少网络请求并提高响应速度，本项目内置了**清单与任务缓存**功能：
-
-- **自动缓存**：`project list`、`project get` 以及所有 `search` 命令的结果默认缓存 **365 分钟**。
-- **全局配置**：可以通过环境变量 `DIDA_CACHE_MINUTES` 修改缓存时长。
-- **强制更新**：在上述命令后添加 `--force` 参数（如 `python3 index.py project list --force`）可跳过缓存直接获取最新数据。
-- **手动清空**：运行 `python3 index.py project clear-cache` 可立即清空本地缓存文件。
-- **智能失效**：当执行创建、更新、删除或完成操作时，受影响的项目缓存会自动失效，确保下次查询时获取正确结果。
-
-## 💡 使用技巧
-
-1. **组合命令**：AI 模型在处理任务时，通常会先通过 `project list` 获取项目 ID，再通过 `project get` 获取任务列表。利用缓存可以显著加快这一过程。
-2. **环境变量**：建议在 `.env` 中设置 `DIDA_CACHE_MINUTES=5` 以平衡速度与实时性。
-3. **故障排查**：如果发现数据未及时同步（例如在网页端做了修改），请在命令中加入 `--force` 参数或运行 `clear-cache`。
-
-### 高级 JSON 模式 (Raw Mode)
-
-支持通过 stdin 传入 OpenAPI 风格的 JSON 以配置复杂字段：
-
-```bash
-cat <<'JSON' | python3 index.py task create-raw
-{
-  "title": "重复任务",
-  "projectId": "inbox",
-  "repeatFlag": "RRULE:FREQ=DAILY;INTERVAL=1"
-}
-JSON
-```
-
-## 📄 仓库说明
-
-- `SKILL.md`: **AI 模型阅读专用**。包含详细的指令集、参数规范和故障排除方案。
-- `index.py`: CLI 主入口，封装了全部业务逻辑。
-- `auth.py`: 负责 OAuth 授权流与 Token 管理。
-- `LICENSE`: MIT 开源许可证。
-
-## 🤝 致谢与版权说明
-
-本项目的最初版本由 [fanxing-6](https://github.com/fanxing-6/dida365-skill) 开发，目前进行了优化并重构。
-
-本项目基于 **MIT License** 开源。在保留原作者版权信息的基础上，由 [woodcoal](https://github.com/woodcoal) 进行了优化与功能扩展，包括但不限于：
-
-- 优化 CLI 命令结构，支持更清晰的层级调用（如 `project list`, `task create`）。
-- 增强了 Checklist 和高级 JSON 字段的处理能力。
-- 完善了面向 AI Agent (如 Claude Code, Gemini CLI, OpenClaw Skill) 的 `SKILL.md` 文档。
+按照提示在浏览器中完成授权。远程服务器可使用 `--code` 参数手动提交授权码。
 
 ---
 
-_声明：本工具并非滴答清单官方出品。_
+## 常用命令
+
+### 查看清单
+
+```bash
+# 列出所有清单
+python cli/index.py project list
+
+# 查看清单中的任务
+python cli/index.py project get <项目ID>
+
+# 查看收集箱
+python cli/index.py search inbox
+```
+
+### 管理任务
+
+```bash
+# 创建任务（带截止日期和优先级）
+python cli/index.py task create "完成项目报告" --due 2026-03-25 --priority 5
+
+# 创建清单任务（子任务）
+python cli/index.py task create-checklist "出差准备" \
+  --project <项目ID> \
+  --items "订票|订酒店|打包行李"
+
+# 完成任务
+python cli/index.py task complete <项目ID> <任务ID>
+
+# 移动任务到其他清单
+python cli/index.py task move <源项目ID> <目标项目ID> <任务ID>
+```
+
+### 查询任务
+
+```bash
+# 今日待办
+python cli/index.py search today
+
+# 未来 7 天任务
+python cli/index.py search upcoming 7
+
+# 指定日期范围
+python cli/index.py search due-range 2026-03-01 2026-03-31
+
+# 筛选高优先级任务
+python cli/index.py search filter --priority 5
+
+# 按标签筛选
+python cli/index.py search filter --tags 工作,紧急
+```
+
+---
+
+## 优先级说明
+
+| 值  | 优先级 |
+| --- | ------ |
+| 0   | 无     |
+| 1   | 低     |
+| 3   | 中     |
+| 5   | 高     |
+
+---
+
+## 缓存机制
+
+本工具内置缓存以提高响应速度：
+
+- **默认缓存时长**：365 分钟
+- **强制刷新**：添加 `--force` 参数
+- **自动失效**：执行写操作后自动清除相关缓存
+- **手动清空**：`python cli/index.py project clear-cache`
+
+可通过环境变量 `DIDA_CACHE_MINUTES` 自定义缓存时长。
+
+---
+
+## 输出格式
+
+默认输出纯文本格式。使用 `--json` 参数可获取 JSON 格式输出：
+
+```bash
+python cli/index.py project list --json
+python cli/index.py search today --json
+```
+
+---
+
+## 高级用法
+
+### 隐藏敏感清单
+
+设置 `DIDA_LIST_HIDDEN` 环境变量，包含该字符的清单不会在列表中显示：
+
+```bash
+DIDA_LIST_HIDDEN=~
+```
+
+### 查看命令帮助
+
+```bash
+python cli/index.py -h           # 查看主命令帮助
+python cli/index.py task -h      # 查看任务子命令帮助
+python cli/index.py task create -h  # 查看 create 子命令详细参数
+```
+
+---
+
+## 项目结构
+
+```
+dida365-skill/
+├── SKILL.md              # AI Agent 使用说明（SKILL.md 标准格式）
+├── README.md             # 用户使用文档
+├── .env.example          # 环境变量模板
+├── cli/                  # CLI 脚本
+│   ├── index.py          # CLI 入口
+│   ├── main.py           # 主逻辑
+│   ├── auth.py           # OAuth 授权
+│   ├── client.py         # API 客户端
+│   ├── models.py         # 数据模型
+│   └── cache.py          # 缓存管理
+├── reference/            # 参考文档
+│   └── Dida365 Open API.md
+└── tests/               # 测试
+```
+
+dida365-skill/
+├── SKILL.md # AI Agent 使用说明（SKILL.md 标准格式）
+├── README.md # 用户使用文档
+├── index.py # CLI 入口（shim）
+├── .env.example # 环境变量模板
+├── cli/ # CLI 脚本
+│ ├── index.py # CLI 入口
+│ ├── main.py # 主逻辑
+│ ├── auth.py # OAuth 授权
+│ ├── client.py # API 客户端
+│ ├── models.py # 数据模型
+│ └── cache.py # 缓存管理
+├── reference/ # 参考文档
+│ └── Dida365 Open API.md
+└── tests/ # 测试
+
+```
+
+---
+
+## 故障排除
+
+| 问题 | 解决方案 |
+|------|----------|
+| 授权失败 | 确认 `.env` 中 Client ID 和 Secret 正确，重新运行 `python cli/index.py auth` |
+| 数据不同步 | 在命令后添加 `--force` 参数强制刷新 |
+| API 限流 | 减少查询频率，或使用 `--json` 减少输出处理 |
+
+---
+
+## 致谢
+
+本项目基于 [fanxing-6/dida365-skill](https://github.com/fanxing-6/dida365-skill) 开发。
+
+由 [woodcoal](https://github.com/woodcoal) 进行优化与功能扩展，包括：
+- 优化 CLI 命令结构，支持更清晰的层级调用
+- 增强 Checklist 和高级 JSON 字段的处理能力
+- 完善面向 AI Agent 的 `SKILL.md` 文档
+
+---
+
+**声明**：本工具并非滴答清单官方出品。
+
+基于 **MIT License** 开源。
+```

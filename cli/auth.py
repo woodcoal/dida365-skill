@@ -15,18 +15,20 @@ from pathlib import Path
 from typing import Any
 
 
-TOKEN_FILE = Path(__file__).with_name(".dida-token.json")
+# 项目根目录（向上两级：cli/ -> 项目根）
+ROOT_DIR = Path(__file__).resolve().parent.parent
+TOKEN_FILE = ROOT_DIR / ".dida-token.json"
+ENV_FILE = ROOT_DIR / ".env"
 
 DEFAULT_CALLBACK_PORT = 18365
 OAUTH_BASE = "https://dida365.com/oauth"
 
 
 def load_env_file() -> None:
-    env_path = Path(__file__).with_name(".env")
-    if not env_path.exists():
+    if not ENV_FILE.exists():
         return
 
-    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+    for raw_line in ENV_FILE.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue

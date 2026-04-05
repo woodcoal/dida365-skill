@@ -8,7 +8,11 @@ from datetime import datetime
 from typing import Any, Optional
 
 
-CACHE_FILE = os.path.join(os.path.dirname(__file__), ".dida-cache.json")
+from pathlib import Path
+
+# 项目根目录（向上两级：cli/ -> 项目根）
+ROOT_DIR = Path(__file__).resolve().parent.parent
+CACHE_FILE = ROOT_DIR / ".dida-cache.json"
 # 默认缓存失效时间 (分钟)
 DEFAULT_EXPIRATION = int(os.environ.get("DIDA_CACHE_MINUTES", "365"))
 

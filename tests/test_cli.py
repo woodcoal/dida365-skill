@@ -1,5 +1,6 @@
 """Tests for Dida365 CLI."""
 
+import os
 import unittest
 from datetime import datetime
 from cli import DidaCLI, normalize_date
@@ -37,6 +38,46 @@ class TestDidaCLI(unittest.TestCase):
         from cli import PRIORITY_LABELS
         self.assertEqual(PRIORITY_LABELS[1], "低")
         self.assertEqual(PRIORITY_LABELS[5], "高")
+
+    def test_filter_hidden_projects(self):
+        """测试隐藏清单过滤功能"""
+        # 测试数据：包含隐藏和正常的清单
+        projects = [
+            {"id": "1", "name": "工作项目"},
+            {"id": "2", "name": "~私人清单"},
+            {"id": "3", "name": "日常任务"},
+            {"id": "4", "name": "~敏感项目"},
+            {"id": "5", "name": "学习计划"},
+        ]
+        
+        # 保存原始值
+        original_prefix = os.environ.get("DIDA_LIST_HIDDEN_PREFIX")
+        
+        try:
+            # 设置隐藏前缀为 "~"
+            os.environ["DIDA_LIST_HIDDEN_PREFIX"] = "~"
+            from cli import HIDDEN_PREFIX, DidaCLI
+            cli = DidaCLI()
+            
+            # 测试过滤功能
+            filtered = cli._filter_hidden_projects(projects, include_hidden=False)
+            self.assertEqual(len(filtered), 3)  # 应该过滤掉 2 个
+            filtered_names = [p["name"] for p in filtered]
+            self.assertNotIn("~私人清单", filtered_names)
+            self.assertNotIn("~敏感项目", filtered_names)
+            self.assertIn("工作项目", filtered_names)
+            self.assertIn("日常任务", filtered_names)
+            
+            # 测试包含隐藏项目
+            all_projects = cli._filter_hidden_projects(projects, include_hidden=True)
+            self.assertEqual(len(all_projects), 5)  # 应该包含所有项目
+            
+        finally:
+            # 恢复原始值
+            if original_prefix is None:
+                os.environ.pop("DIDA_LIST_HIDDEN_PREFIX", None)
+            else:
+                os.environ["DIDA_LIST_HIDDEN_PREFIX"] = original_prefix
 
 
 if __name__ == "__main__":

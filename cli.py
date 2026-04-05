@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import json
 import sys
@@ -24,6 +25,9 @@ except ImportError:
 
 PRIORITY_LABELS = {0: "  ", 1: "低", 3: "中", 5: "高"}
 
+# 获取隐藏清单的前缀配置，默认为空（不隐藏任何清单）
+HIDDEN_PREFIX = os.environ.get("DIDA_LIST_HIDDEN_PREFIX", "")
+
 
 class DidaCLI:
     """
@@ -36,16 +40,34 @@ class DidaCLI:
 
     # --- 数据获取与业务逻辑 ---
 
-    def list_projects(self, force: bool = False) -> List[Project]:
-        """列出所有项目（带缓存支持）。"""
+    def list_projects(self, force: bool = False, include_hidden: bool = False) -> List[Project]:
+        """
+        列出所有项目（带缓存支持）。
+        
+        :param force: 是否强制从服务器刷新数据
+        :param include_hidden: 是否包含隐藏的清单（以 HIDDEN_PREFIX 开头的清单）
+        :return: 项目列表
+        """
         if not force:
             cached = get_cached_data("projects")
             if cached is not None:
-                return cached
+                return self._filter_hidden_projects(cached, include_hidden)
         
         projects = self.client.list_projects()
         set_cached_data("projects", projects)
-        return projects
+        return self._filter_hidden_projects(projects, include_hidden)
+    
+    def _filter_hidden_projects(self, projects: List[Project], include_hidden: bool = False) -> List[Project]:
+        """
+        根据 HIDDEN_PREFIX 过滤隐藏的清单。
+        
+        :param projects: 原始项目列表
+        :param include_hidden: 是否包含隐藏的清单
+        :return: 过滤后的项目列表
+        """
+        if not HIDDEN_PREFIX or include_hidden:
+            return projects
+        return [p for p in projects if not p.get("name", "").startswith(HIDDEN_PREFIX)]
 
     def get_project_data(self, project_id: str, force: bool = False) -> Dict[str, Any]:
         """获取项目数据（带缓存支持）。"""
@@ -204,17 +226,41 @@ def cmd_auth(args, cli: DidaCLI):
     run_oauth_flow(args.code)
 
 def cmd_project_list(args, cli: DidaCLI):
-    projects = cli.list_projects(force=args.force)
-    lines = ["项目列表:\n"]
-    for p in projects:
-        archived = " (已归档)" if p.get("closed") else ""
-        lines.append(f"  [{p['id']}] {p['name']}{archived}")
-    lines.append(f"\n共 {len(projects)} 个项目")
-    print("\n".join(lines))
+    """列出项目列表，支持隐藏指定前缀的清单和 JSON 输出。"""
+    # 获取所有项目（包含隐藏的，用于内部处理）
+    all_projects = cli.list_projects(force=args.force, include_hidden=True)
+    # 显示的项目（过滤掉隐藏的）
+    projects = cli.list_projects(force=args.force, include_hidden=False)
+    
+    # 计算隐藏了多少个清单
+    hidden_count = len(all_projects) - len(projects)
+    
+    # 根据 --json 参数决定输出格式
+    if getattr(args, 'json', False):
+        output_json(projects)
+    else:
+        lines = ["项目列表:\n"]
+        for p in projects:
+            archived = " (已归档)" if p.get("closed") else ""
+            lines.append(f"  [{p['id']}] {p['name']}{archived}")
+        
+        # 显示隐藏清单的提示信息（仅当有隐藏清单且设置了隐藏前缀时）
+        if hidden_count > 0 and HIDDEN_PREFIX:
+            lines.append(f"\n共 {len(projects)} 个项目（已隐藏 {hidden_count} 个以 '{HIDDEN_PREFIX}' 开头的清单）")
+        else:
+            lines.append(f"\n共 {len(projects)} 个项目")
+        
+        output_text("\n".join(lines))
 
 def cmd_project_get(args, cli: DidaCLI):
+    """获取项目详情，支持 JSON 输出格式。"""
     project_id = cli._resolve_project_id(args.id)
-    print(cli.format_project_detail(cli.get_project_data(project_id, force=args.force)))
+    data = cli.get_project_data(project_id, force=args.force)
+    
+    if getattr(args, 'json', False):
+        output_json(data)
+    else:
+        output_text(cli.format_project_detail(data))
 def cmd_project_create(args, cli: DidaCLI):
     payload: Project = {"name": args.name}
     if args.color: payload["color"] = args.color
@@ -291,23 +337,31 @@ def cmd_task_create_checklist(args, cli: DidaCLI):
     print(f"Checklist 创建成功: {res['title']} [{res['id']}]")
 
 def cmd_project_info(args, cli: DidaCLI):
+    """获取项目元数据，支持 JSON 输出格式。"""
     res = cli.client.get_project(args.id)
-    lines = [
-        f"项目: {res.get('name')} [{res.get('id')}]",
-        f"类型: {res.get('kind')}",
-        f"视图: {res.get('viewMode')}",
-        f"颜色: {res.get('color')}",
-        f"已关闭: {'是' if res.get('closed') else '否'}"
-    ]
-    print("\n".join(lines))
+    if getattr(args, 'json', False):
+        output_json(res)
+    else:
+        lines = [
+            f"项目: {res.get('name')} [{res.get('id')}]",
+            f"类型: {res.get('kind')}",
+            f"视图: {res.get('viewMode')}",
+            f"颜色: {res.get('color')}",
+            f"已关闭: {'是' if res.get('closed') else '否'}"
+        ]
+        output_text("\n".join(lines))
 
 def cmd_project_clear_cache(args, cli: DidaCLI):
     clear_all_cache()
     print("缓存已清除。")
 
 def cmd_task_get(args, cli: DidaCLI):
+    """获取任务详情，支持 JSON 输出格式。"""
     task = cli.client.get_task(args.project, args.id)
-    print(json.dumps(task, ensure_ascii=False, indent=2))
+    if getattr(args, 'json', False):
+        output_json(task)
+    else:
+        output_text(json.dumps(task, ensure_ascii=False, indent=2))
 
 def cmd_task_complete(args, cli: DidaCLI):
     project_id = cli._resolve_project_id(args.project)
@@ -327,24 +381,42 @@ def cmd_task_move(args, cli: DidaCLI):
     print("任务移动成功。")
 
 def cmd_search_today(args, cli: DidaCLI):
-    print(cli.format_task_list(cli.get_today_tasks(force=args.force), "今日待办"))
+    """获取今日待办，支持 JSON 输出格式。"""
+    tasks = cli.get_today_tasks(force=args.force)
+    if getattr(args, 'json', False):
+        output_json(tasks)
+    else:
+        output_text(cli.format_task_list(tasks, "今日待办"))
 
 def cmd_search_upcoming(args, cli: DidaCLI):
+    """获取未来几天到期任务，支持 JSON 输出格式。"""
     start = datetime.now().date()
     end = start + timedelta(days=args.days - 1)
     tasks = cli.get_due_range_tasks(start.isoformat(), end.isoformat(), project_id=args.project, force=args.force)
-    print(cli.format_task_list(tasks, f"未来 {args.days} 天到期任务 ({start.isoformat()} ~ {end.isoformat()})"))
+    if getattr(args, 'json', False):
+        output_json(tasks)
+    else:
+        output_text(cli.format_task_list(tasks, f"未来 {args.days} 天到期任务 ({start.isoformat()} ~ {end.isoformat()})"))
 
 def cmd_search_due_range(args, cli: DidaCLI):
+    """获取指定日期范围的任务，支持 JSON 输出格式。"""
     tasks = cli.get_due_range_tasks(args.start, args.end, project_id=args.project, force=args.force)
-    print(cli.format_task_list(tasks, f"到期任务 ({args.start} ~ {args.end})"))
+    if getattr(args, 'json', False):
+        output_json(tasks)
+    else:
+        output_text(cli.format_task_list(tasks, f"到期任务 ({args.start} ~ {args.end})"))
 
 def cmd_search_completed(args, cli: DidaCLI):
+    """获取已完成任务，支持 JSON 输出格式。"""
     project_ids = [args.project] if args.project else None
     tasks = cli.client.list_completed_tasks(project_ids=project_ids, start_date=args.start, end_date=args.end)
-    print(cli.format_task_list(tasks, f"已完成任务 ({args.start} ~ {args.end})"))
+    if getattr(args, 'json', False):
+        output_json(tasks)
+    else:
+        output_text(cli.format_task_list(tasks, f"已完成任务 ({args.start} ~ {args.end})"))
 
 def cmd_search_filter(args, cli: DidaCLI):
+    """高级筛选任务，支持 JSON 输出格式。"""
     payload: Dict[str, Any] = {}
     if args.project: payload["projectIds"] = [args.project]
     if args.start: payload["startDate"] = normalize_date(args.start)
@@ -354,14 +426,37 @@ def cmd_search_filter(args, cli: DidaCLI):
     if args.status: payload["status"] = [int(s) for s in args.status.split(",")]
     
     tasks = cli.client.filter_tasks(payload)
-    print(cli.format_task_list(tasks, "筛选结果"))
+    if getattr(args, 'json', False):
+        output_json(tasks)
+    else:
+        output_text(cli.format_task_list(tasks, "筛选结果"))
 
 def cmd_search_inbox(args, cli: DidaCLI):
+    """获取收集箱，支持 JSON 输出格式。"""
     project, tasks = cli.get_inbox_data(force=args.force)
-    print(cli.format_task_list(tasks, f"收集箱 ({project['name']})"))
+    if getattr(args, 'json', False):
+        output_json({"project": project, "tasks": tasks})
+    else:
+        output_text(cli.format_task_list(tasks, f"收集箱 ({project['name']})"))
 
 
 # --- 辅助工具 ---
+
+def output_json(data: Any) -> None:
+    """
+    以 JSON 格式输出数据。
+    
+    :param data: 要输出的数据（dict 或 list）
+    """
+    print(json.dumps(data, ensure_ascii=False, indent=2))
+
+def output_text(text: str) -> None:
+    """
+    以纯文本格式输出数据。
+    
+    :param text: 要输出的文本
+    """
+    print(text)
 
 def normalize_date(date_str: str) -> str:
     if "T" in date_str: return date_str
@@ -393,11 +488,13 @@ def setup_parser() -> argparse.ArgumentParser:
     
     pp_list = ps_proj.add_parser("list", help="列表")
     pp_list.add_argument("--force", action="store_true")
+    pp_list.add_argument("--json", action="store_true", help="以 JSON 格式输出")
     pp_list.set_defaults(func=cmd_project_list)
     
     pp_get = ps_proj.add_parser("get", help="详情")
     pp_get.add_argument("id")
     pp_get.add_argument("--force", action="store_true")
+    pp_get.add_argument("--json", action="store_true", help="以 JSON 格式输出")
     pp_get.set_defaults(func=cmd_project_get)
     
     pp_create = ps_proj.add_parser("create", help="创建")
@@ -416,8 +513,10 @@ def setup_parser() -> argparse.ArgumentParser:
     pp_update.add_argument("--sort-order", type=int)
     pp_update.set_defaults(func=cmd_project_update)
     
-    ps_proj.add_parser("info").add_argument("id")
-    ps_proj.choices["info"].set_defaults(func=cmd_project_info)
+    pp_info = ps_proj.add_parser("info")
+    pp_info.add_argument("id")
+    pp_info.add_argument("--json", action="store_true", help="以 JSON 格式输出")
+    pp_info.set_defaults(func=cmd_project_info)
     
     ps_proj.add_parser("delete").add_argument("id")
     ps_proj.choices["delete"].set_defaults(func=cmd_project_delete)
@@ -431,6 +530,7 @@ def setup_parser() -> argparse.ArgumentParser:
     t_get = ps_task.add_parser("get")
     t_get.add_argument("project")
     t_get.add_argument("id")
+    t_get.add_argument("--json", action="store_true", help="以 JSON 格式输出")
     t_get.set_defaults(func=cmd_task_get)
 
     tt_checklist = ps_task.add_parser("create-checklist", help="创建清单任务")
@@ -487,12 +587,15 @@ def setup_parser() -> argparse.ArgumentParser:
     p_search = subparsers.add_parser("search", help="查询")
     ps_search = p_search.add_subparsers(dest="sub", required=True)
     
-    ps_search.add_parser("today").set_defaults(func=cmd_search_today, force=False)
+    ps_today = ps_search.add_parser("today")
+    ps_today.add_argument("--json", action="store_true", help="以 JSON 格式输出")
+    ps_today.set_defaults(func=cmd_search_today, force=False)
     
     ps_upcoming = ps_search.add_parser("upcoming")
     ps_upcoming.add_argument("days", type=int, nargs="?", default=7)
     ps_upcoming.add_argument("--project")
     ps_upcoming.add_argument("--force", action="store_true")
+    ps_upcoming.add_argument("--json", action="store_true", help="以 JSON 格式输出")
     ps_upcoming.set_defaults(func=cmd_search_upcoming)
     
     ps_range = ps_search.add_parser("due-range")
@@ -500,12 +603,14 @@ def setup_parser() -> argparse.ArgumentParser:
     ps_range.add_argument("end")
     ps_range.add_argument("--project")
     ps_range.add_argument("--force", action="store_true")
+    ps_range.add_argument("--json", action="store_true", help="以 JSON 格式输出")
     ps_range.set_defaults(func=cmd_search_due_range)
     
     ps_completed = ps_search.add_parser("completed")
     ps_completed.add_argument("start")
     ps_completed.add_argument("end")
     ps_completed.add_argument("--project")
+    ps_completed.add_argument("--json", action="store_true", help="以 JSON 格式输出")
     ps_completed.set_defaults(func=cmd_search_completed)
     
     ps_filter = ps_search.add_parser("filter")
@@ -515,10 +620,12 @@ def setup_parser() -> argparse.ArgumentParser:
     ps_filter.add_argument("--priority")
     ps_filter.add_argument("--tags")
     ps_filter.add_argument("--status")
+    ps_filter.add_argument("--json", action="store_true", help="以 JSON 格式输出")
     ps_filter.set_defaults(func=cmd_search_filter)
     
     ps_inbox = ps_search.add_parser("inbox")
     ps_inbox.add_argument("--force", action="store_true")
+    ps_inbox.add_argument("--json", action="store_true", help="以 JSON 格式输出")
     ps_inbox.set_defaults(func=cmd_search_inbox)
 
     return parser

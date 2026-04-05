@@ -28,15 +28,15 @@ metadata:
 ```
 用户想要…
 ├─ 项目管理 (project)
-│  ├─ 列出所有项目 ──────→ project list [--force]
-│  ├─ 查看项目任务 ──────→ project get <projectId> [--force]
-│  ├─ 查看项目元数据 ────→ project info <projectId>
+│  ├─ 列出所有项目 ──────→ project list [--force] [--json]
+│  ├─ 查看项目任务 ──────→ project get <projectId> [--force] [--json]
+│  ├─ 查看项目元数据 ────→ project info <projectId> [--json]
 │  ├─ 创建新项目 ────────→ project create "<name>" [--color x]
 │  ├─ 更新项目 ──────────→ project update <projectId> [--name x]
 │  ├─ 清除本地缓存 ──────→ project clear-cache
 │  └─ 删除项目 (需确认) ─→ project delete <projectId> !! ⚠️ 需用户批准
 ├─ 任务操作 (task)
-│  ├─ 查看任务详情 ──────→ task get <projectId> <taskId>
+│  ├─ 查看任务详情 ──────→ task get <projectId> <taskId> [--json]
 │  ├─ 创建新任务 ────────→ task create "<title>" [--project id] [--due YYYY-MM-DD]
 │  ├─ 创建清单任务 ──────→ task create-checklist "<title>" --project <id> --items "a|b|c"
 │  ├─ 更新任务 ──────────→ task update <projectId> <taskId> [--title x]
@@ -45,12 +45,12 @@ metadata:
 │  ├─ 移动任务 ──────────→ task move <fromPid> <toPid> <taskId>
 │  └─ 高级 JSON 模式 ────→ task create-raw / update-raw
 └─ 查询与筛选 (search)
-   ├─ 今日待办 ──────────→ search today [--force]
-   ├─ 未来几天到期 ──────→ search upcoming [days] [--force]
-   ├─ 指定区间到期 ──────→ search due-range <start> <end> [--force]
-   ├─ 已完成任务 ────────→ search completed <start> <end> [--force]
-   ├─ 高级筛选 ──────────→ search filter [--project id] [--priority N]
-   └─ 收集箱 ────────────→ search inbox [--force]
+   ├─ 今日待办 ──────────→ search today [--force] [--json]
+   ├─ 未来几天到期 ──────→ search upcoming [days] [--force] [--json]
+   ├─ 指定区间到期 ──────→ search due-range <start> <end> [--force] [--json]
+   ├─ 已完成任务 ────────→ search completed <start> <end> [--force] [--json]
+   ├─ 高级筛选 ──────────→ search filter [--project id] [--priority N] [--json]
+   └─ 收集箱 ────────────→ search inbox [--force] [--json]
 ```
 
 ## 核心工作流：性能与缓存优化
@@ -73,6 +73,13 @@ metadata:
 - `--due`: 格式为 `YYYY-MM-DD`。
 - `--items`: 清单子项，用 `|` 分隔，例如 `"买牛奶|买鸡蛋"`。
 - `--tags`: 逗号分隔，例如 `"工作,紧急"`。
+- `--json`: 以 JSON 格式输出结果（默认输出纯文本）。
+
+## 环境变量
+
+可通过 `.env` 文件配置以下选项：
+
+- `DIDA_LIST_HIDDEN_PREFIX`: 隐藏清单前缀。当清单名称以此字符开头时，在项目列表中隐藏不显示给 Agent。例如设置为 `~`，则所有以 `~` 开头的清单（如 `~私人清单`、`~敏感项目`）不会显示在列表中，可用于隔离不想让 AI 看到的内容。
 
 ## 故障排除
 
